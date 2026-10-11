@@ -9,6 +9,13 @@ import Logo from '../components/common/Logo';
 import { isValidPassword, PASSWORD_POLICY_MESSAGE } from '../utils/passwordPolicy';
 import PasswordRequirements from '../components/common/PasswordRequirements';
 
+const SECURITY_QUESTIONS = [
+  'What was the name of your first school?',
+  'What was the make and model of your first car?',
+  'What street did you grow up on?',
+  'What city were you born in?',
+];
+
 export default function AuthPage({ setActiveTab }) {
   const { 
     currentUser, 
@@ -32,7 +39,10 @@ export default function AuthPage({ setActiveTab }) {
   const [regPassword, setRegPassword] = useState('');
   const [regRole, setRegRole] = useState('supplier');
   const [regIndustry, setRegIndustry] = useState('Logistics & Warehousing');
+  const [securityQuestion, setSecurityQuestion] = useState(SECURITY_QUESTIONS[0]);
   const [securityAnswer, setSecurityAnswer] = useState('');
+  const [recoveryQuestion, setRecoveryQuestion] = useState('');
+  const [recoveryQuestionLoading, setRecoveryQuestionLoading] = useState(false);
   const [newPassword, setNewPassword] = useState('');
 
   // Status & feedback
@@ -59,6 +69,33 @@ export default function AuthPage({ setActiveTab }) {
       setUserCheckStatus(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRecoveryQuestionLookup = async () => {
+    if (!usernameOrEmail.trim()) {
+      setErrorMsg('Enter your username or registered corporate email first.');
+      return;
+    }
+
+    setRecoveryQuestionLoading(true);
+    setErrorMsg(null);
+    setSecurityAnswer('');
+    try {
+      const result = await checkUsername(usernameOrEmail);
+      if (result.error) throw new Error(result.error);
+      const question = result.userPreview?.securityQuestion;
+      if (!result.exists || !question) {
+        setRecoveryQuestion('');
+        setErrorMsg('No recovery question was found for that account. Check the username or email and try again.');
+        return;
+      }
+      setRecoveryQuestion(question);
+    } catch (err) {
+      setRecoveryQuestion('');
+      setErrorMsg(err.message || 'Unable to retrieve the account recovery question.');
+    } finally {
+      setRecoveryQuestionLoading(false);
     }
   };
 
@@ -101,6 +138,7 @@ export default function AuthPage({ setActiveTab }) {
         password: regPassword,
         role: regRole,
         industry: regIndustry,
+        securityQuestion,
         securityAnswer
       });
       setSuccessMsg(`Organization registered successfully! Welcome, ${user.companyName}.`);
@@ -119,6 +157,10 @@ export default function AuthPage({ setActiveTab }) {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+    if (!recoveryQuestion) {
+      setErrorMsg('Look up your account to view its recovery question before continuing.');
+      return;
+    }
     if (!isValidPassword(newPassword)) {
       setErrorMsg(PASSWORD_POLICY_MESSAGE);
       return;
@@ -153,6 +195,8 @@ export default function AuthPage({ setActiveTab }) {
       const res = await recoverUsername({ email, companyName });
       setSuccessMsg(`Found account! Your username is: @${res.username}`);
       setUsernameOrEmail(res.username);
+      setRecoveryQuestion('');
+      setSecurityAnswer('');
     } catch (err) {
       setErrorMsg(err.message);
     } finally {
@@ -337,6 +381,8 @@ export default function AuthPage({ setActiveTab }) {
                     onChange={(e) => {
                       setUsernameOrEmail(e.target.value);
                       setUserCheckStatus(null);
+                      setRecoveryQuestion('');
+                      setSecurityAnswer('');
                     }}
                     onBlur={() => handleCheckUser(usernameOrEmail)}
                     placeholder="e.g. apex_logistics or contact@apexlogistics.com"
@@ -619,26 +665,51 @@ export default function AuthPage({ setActiveTab }) {
               </div>
             </div>
 
-            {/* Security Verification Setting */}
-            <div style={{ background: '#F8FAFC', padding: '16px', borderRadius: '10px', marginTop: '18px', border: '1px solid #E2E8F0' }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
-                Account Recovery Security Question
-              </div>
-              <div style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '10px' }}>
-                Used if you ever forget your password: <em>"What is your company's founding hub city?"</em>
-              </div>
+            {/* Account recovery question */}
+            <div style={{ background: '#F8FAFC', padding: '18px', borderRadius: '10px', marginTop: '18px', border: '1px solid #E2E8F0' }}>
+              <label htmlFor="registration-security-question" style={{ display: 'block', fontSize: '0.9rem', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                Account recovery question
+              </label>
+              <p style={{ fontSize: '0.85rem', color: '#64748B', marginBottom: '12px' }}>
+                Choose a question you can answer consistently. You will need this answer to reset your password.
+              </p>
+              <select
+                id="registration-security-question"
+                required
+                value={securityQuestion}
+                onChange={(e) => setSecurityQuestion(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '0.95rem',
+                  background: '#FFFFFF',
+                  outline: 'none',
+                  marginBottom: '12px'
+                }}
+              >
+                {SECURITY_QUESTIONS.map((question) => (
+                  <option key={question} value={question}>{question}</option>
+                ))}
+              </select>
+              <label htmlFor="registration-security-answer" style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                Your answer
+              </label>
               <input
+                id="registration-security-answer"
                 type="text"
                 required
                 value={securityAnswer}
                 onChange={(e) => setSecurityAnswer(e.target.value)}
-                placeholder="e.g. Mumbai, Berlin, or Chicago"
+                autoComplete="off"
+                placeholder="Enter your answer"
                 style={{
                   width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: '6px',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
                   border: '1px solid #CBD5E1',
-                  fontSize: '0.9rem',
+                  fontSize: '0.95rem',
                   outline: 'none'
                 }}
               />
@@ -662,36 +733,61 @@ export default function AuthPage({ setActiveTab }) {
               <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
                 B2B Username or Registered Corporate Email
               </label>
-              <div style={{ position: 'relative' }}>
-                <User size={18} style={{ position: 'absolute', left: '14px', top: '13px', color: '#94A3B8' }} />
-                <input
-                  type="text"
-                  required
-                  value={usernameOrEmail}
-                  onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder="e.g. apex_logistics or contact@apexlogistics.com"
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <User size={18} style={{ position: 'absolute', left: '14px', top: '13px', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    required
+                    disabled={recoveryQuestionLoading}
+                    value={usernameOrEmail}
+                    onChange={(e) => {
+                      setUsernameOrEmail(e.target.value);
+                      setRecoveryQuestion('');
+                      setSecurityAnswer('');
+                    }}
+                    placeholder="e.g. apex_logistics or contact@apexlogistics.com"
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px 12px 42px',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.95rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRecoveryQuestionLookup}
+                  disabled={recoveryQuestionLoading}
                   style={{
-                    width: '100%',
-                    padding: '12px 14px 12px 42px',
+                    padding: '0 14px',
                     borderRadius: '8px',
                     border: '1px solid #CBD5E1',
-                    fontSize: '0.95rem',
-                    outline: 'none'
+                    background: '#F8FAFC',
+                    color: '#334155',
+                    fontSize: '0.88rem',
+                    fontWeight: '600',
+                    cursor: recoveryQuestionLoading ? 'wait' : 'pointer'
                   }}
-                />
+                >
+                  {recoveryQuestionLoading ? 'Loading…' : 'Show question'}
+                </button>
               </div>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
-                Security Verification: What is your company's founding hub city?
+                Security question: {recoveryQuestion || 'Look up your account to view its question.'}
               </label>
               <input
                 type="text"
                 required
+                disabled={!recoveryQuestion}
                 value={securityAnswer}
                 onChange={(e) => setSecurityAnswer(e.target.value)}
-                placeholder="Enter the city answer set during registration (e.g. Mumbai, Delhi)"
+                placeholder="Enter the answer you saved during registration"
                 style={{
                   width: '100%',
                   padding: '12px 14px',

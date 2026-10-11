@@ -6,6 +6,13 @@ import { getNeonClient } from '../config/neonDb.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const USERS_FILE = path.join(__dirname, '../../data/users.json');
+const DEFAULT_SECURITY_QUESTION = 'What was the name of your first school?';
+const SECURITY_QUESTIONS = [
+  DEFAULT_SECURITY_QUESTION,
+  'What was the make and model of your first car?',
+  'What street did you grow up on?',
+  'What city were you born in?'
+];
 
 const INITIAL_USERS = [
   { id: 'usr_apex', username: 'apex_logistics', companyName: 'Apex Packaging Solutions Ltd', email: 'contact@apexlogistics.com', password: 'password123', role: 'supplier', roleLabel: 'Packaging Supplier', industry: 'Logistics & Warehousing', securityQuestion: "What is your company's founding hub city?", securityAnswer: 'mumbai', createdAt: '2026-01-15T09:00:00.000Z' },
@@ -52,6 +59,10 @@ function validatePassword(password) {
   if (typeof password !== 'string' || password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z\d\s]/.test(password)) {
     throw new Error('Password must be at least 8 characters and include at least 1 alphabet, 1 number, and 1 symbol.');
   }
+}
+
+function normalizeSecurityAnswer(answer) {
+  return answer.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 async function readUsers() {
@@ -112,9 +123,11 @@ export async function authenticateUser({ usernameOrEmail, password }) {
   return sanitizeUser(user);
 }
 
-export async function registerUser({ username, companyName, email, password, role = 'supplier', industry = 'Manufacturing & Logistics', securityQuestion = "What is your company's founding hub city?", securityAnswer = '' }) {
+export async function registerUser({ username, companyName, email, password, role = 'supplier', industry = 'Manufacturing & Logistics', securityQuestion = DEFAULT_SECURITY_QUESTION, securityAnswer = '' }) {
   if (!username || !companyName || !email || !password) throw new Error('Username, Company Name, Email, and Password are required.');
   validatePassword(password);
+  if (!SECURITY_QUESTIONS.includes(securityQuestion)) throw new Error('Please choose a valid account recovery question.');
+  if (typeof securityAnswer !== 'string' || !securityAnswer.trim()) throw new Error('An answer to your account recovery question is required.');
   const cleanUsername = username.trim().toLowerCase().replace(/\s+/g, '_');
   const cleanEmail = email.trim().toLowerCase();
   const users = await readUsers();
@@ -123,18 +136,22 @@ export async function registerUser({ username, companyName, email, password, rol
   const roleLabels = { supplier: 'Buyer / Seller Organization', buyer: 'Buyer / Seller Organization', logistics: 'Logistics Partner' };
   const allowedRoles = ['supplier', 'logistics'];
   if (!allowedRoles.includes(role)) throw new Error('Please choose a valid LoopPack usage role.');
-  const user = { id: `usr_${Date.now()}`, username: cleanUsername, companyName: companyName.trim(), email: cleanEmail, password, role, roleLabel: roleLabels[role] || 'B2B Circular Packaging Partner', industry: industry.trim() || 'General Industrial', securityQuestion: securityQuestion.trim() || "What is your company's founding hub city?", securityAnswer: (securityAnswer || '').trim().toLowerCase(), createdAt: new Date().toISOString() };
+  const user = { id: `usr_${Date.now()}`, username: cleanUsername, companyName: companyName.trim(), email: cleanEmail, password, role, roleLabel: roleLabels[role] || 'B2B Circular Packaging Partner', industry: industry.trim() || 'General Industrial', securityQuestion, securityAnswer: normalizeSecurityAnswer(securityAnswer), createdAt: new Date().toISOString() };
   await saveUser(user);
   return sanitizeUser(user);
 }
 
 export async function resetPassword({ usernameOrEmail, securityAnswer, newPassword }) {
-  if (!usernameOrEmail || !newPassword) throw new Error('Username/email and new password are required.');
+  if (typeof usernameOrEmail !== 'string' || !usernameOrEmail.trim() ||
+      typeof securityAnswer !== 'string' || !securityAnswer.trim() ||
+      typeof newPassword !== 'string' || !newPassword) {
+    throw new Error('Username/email, security answer, and new password are required.');
+  }
   validatePassword(newPassword);
   const needle = usernameOrEmail.trim().toLowerCase();
   const user = (await readUsers()).find(item => item.username.toLowerCase() === needle || item.email.toLowerCase() === needle);
   if (!user) throw new Error('No B2B account found with this username or corporate email.');
-  if (user.securityAnswer && (securityAnswer || '').trim().toLowerCase() !== user.securityAnswer) throw new Error('Security verification answer is incorrect.');
+  if (!user.securityAnswer || normalizeSecurityAnswer(securityAnswer) !== normalizeSecurityAnswer(user.securityAnswer)) throw new Error('Security verification answer is incorrect.');
   user.password = newPassword;
   await saveUser(user);
   return sanitizeUser(user);
